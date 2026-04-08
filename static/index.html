@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Invoice Renamer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,.1);
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: .25rem; }
+    p.sub { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+    .drop-zone:hover, .drop-zone.over { border-color: #4f46e5; }
+    .drop-zone input[type="file"] { display: none; }
+    .drop-zone label { cursor: pointer; color: #4f46e5; font-weight: 600; }
+    #file-list { margin-top: 1rem; font-size: .85rem; color: #444; }
+    #file-list li { list-style: none; padding: .2rem 0; }
+    #error-msg {
+      margin-top: .75rem;
+      color: #dc2626;
+      font-size: .85rem;
+      display: none;
+    }
+    button[type="submit"] {
+      margin-top: 1.25rem;
+      width: 100%;
+      padding: .75rem;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    button[type="submit"]:disabled { background: #a5b4fc; cursor: not-allowed; }
+    button[type="submit"]:hover:not(:disabled) { background: #4338ca; }
+    #status { margin-top: .75rem; font-size: .85rem; color: #555; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Invoice Renamer</h1>
+  <p class="sub">Upload up to 10 PDF invoices (max 5 MB each) and get back a .zip of renamed files.</p>
+
+  <form id="upload-form">
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".pdf" multiple />
+      <p>Drag &amp; drop PDFs here or <label for="file-input">browse</label></p>
+    </div>
+    <ul id="file-list"></ul>
+    <div id="error-msg"></div>
+    <button type="submit" id="submit-btn" disabled>Rename &amp; Download</button>
+  </form>
+  <div id="status"></div>
+</div>
+
+<script>
+  const form = document.getElementById('upload-form');
+  const input = document.getElementById('file-input');
+  const dropZone = document.getElementById('drop-zone');
+  const fileList = document.getElementById('file-list');
+  const errorMsg = document.getElementById('error-msg');
+  const submitBtn = document.getElementById('submit-btn');
+  const status = document.getElementById('status');
+
+  const MAX_FILES = 10;
+  const MAX_SIZE = 5 * 1024 * 1024;
+
+  let selectedFiles = [];
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.style.display = 'block';
+  }
+
+  function clearError() {
+    errorMsg.textContent = '';
+    errorMsg.style.display = 'none';
+  }
+
+  function renderFileList() {
+    fileList.innerHTML = '';
+    selectedFiles.forEach(f => {
+      const li = document.createElement('li');
+      li.textContent = `\u2022 ${f.name} (${(f.size / 1024).toFixed(1)} KB)`;
+      fileList.appendChild(li);
+    });
+    submitBtn.disabled = selectedFiles.length === 0;
+  }
+
+  function validateAndSet(files) {
+    clearError();
+    const arr = Array.from(files);
+    if (arr.length > MAX_FILES) {
+      showError(`Too many files. Please select at most ${MAX_FILES} PDFs.`);
+      return;
+    }
+    for (const f of arr) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) {
+        showError(`"${f.name}" is not a PDF. Only .pdf files are accepted.`);
+        return;
+      }
+      if (f.size > MAX_SIZE) {
+        showError(`"${f.name}" exceeds the 5 MB limit.`);
+        return;
+      }
+    }
+    selectedFiles = arr;
+    renderFileList();
+  }
+
+  input.addEventListener('change', () => validateAndSet(input.files));
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('over');
+    validateAndSet(e.dataTransfer.files);
+  });
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (selectedFiles.length === 0) return;
+
+    submitBtn.disabled = true;
+    status.textContent = 'Uploading and extracting fields\u2026';
+
+    const data = new FormData();
+    selectedFiles.forEach(f => data.append('files', f));
+
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: data });
+      if (!res.ok) {
+        const err = await res.json();
+        showError(err.detail || 'Upload failed.');
+        status.textContent = '';
+        submitBtn.disabled = false;
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'invoices.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+      status.textContent = 'Done! Your download should start automatically.';
+    } catch (err) {
+      showError('Network error. Please try again.');
+      status.textContent = '';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
