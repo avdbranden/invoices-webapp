@@ -2,18 +2,33 @@ import pytest
 from app.build_filename import build_filename
 
 
-def test_normal_fields():
+def test_normal_fields_default_order():
     fields = {"date": "2024-03-15", "provider": "Acme Corp", "amount": "450.00", "currency": "EUR"}
-    assert build_filename(fields) == "2024_03_15 Acme_Corp 450.00 EUR.pdf"
+    assert build_filename(fields) == "2024_03_15 Acme_Corp 450.00.pdf"
+
+
+def test_custom_field_order():
+    fields = {"date": "2024-03-15", "provider": "Acme", "amount": "450.00", "currency": "EUR"}
+    assert build_filename(fields, ["provider", "amount", "date"]) == "Acme 450.00 2024_03_15.pdf"
+
+
+def test_single_field():
+    fields = {"date": "2024-03-15", "provider": "Acme", "amount": "450.00", "currency": "EUR"}
+    assert build_filename(fields, ["provider"]) == "Acme.pdf"
+
+
+def test_currency_included_when_in_order():
+    fields = {"date": "2024-03-15", "provider": "Acme", "amount": "450.00", "currency": "EUR"}
+    assert build_filename(fields, ["date", "provider", "amount", "currency"]) == "2024_03_15 Acme 450.00 EUR.pdf"
 
 
 def test_unknown_fields():
     fields = {"date": "UNKNOWN", "provider": "UNKNOWN", "amount": "UNKNOWN", "currency": "UNKNOWN"}
-    assert build_filename(fields) == "UNKNOWN UNKNOWN UNKNOWN UNKNOWN.pdf"
+    assert build_filename(fields, ["date", "provider", "amount", "currency"]) == "UNKNOWN UNKNOWN UNKNOWN UNKNOWN.pdf"
 
 
 def test_missing_fields():
-    assert build_filename({}) == "UNKNOWN UNKNOWN UNKNOWN UNKNOWN.pdf"
+    assert build_filename({}, ["date", "provider", "amount"]) == "UNKNOWN UNKNOWN UNKNOWN.pdf"
 
 
 def test_special_chars_in_provider():
@@ -45,5 +60,5 @@ def test_amount_strips_non_numeric():
 
 def test_currency_uppercased():
     fields = {"date": "2024-01-01", "provider": "X", "amount": "10", "currency": "eur"}
-    name = build_filename(fields)
+    name = build_filename(fields, ["date", "provider", "amount", "currency"])
     assert "EUR" in name

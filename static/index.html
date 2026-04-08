@@ -45,6 +45,41 @@
       font-size: .85rem;
       display: none;
     }
+
+    /* Rename format section */
+    .rename-section { margin-top: 1.5rem; }
+    .rename-section h2 { font-size: .95rem; font-weight: 600; margin-bottom: .75rem; color: #111; }
+    .field-list { list-style: none; display: flex; flex-direction: column; gap: .4rem; }
+    .field-row {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      background: #f9f9f9;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: .5rem .75rem;
+      cursor: grab;
+      user-select: none;
+      transition: background .15s, box-shadow .15s;
+    }
+    .field-row.dragging { opacity: .4; }
+    .field-row.drag-over { box-shadow: 0 0 0 2px #4f46e5; background: #eef2ff; }
+    .drag-handle { color: #9ca3af; font-size: 1rem; cursor: grab; line-height: 1; }
+    .field-row input[type="checkbox"] { accent-color: #4f46e5; width: 1rem; height: 1rem; cursor: pointer; }
+    .field-row label { font-size: .9rem; cursor: pointer; flex: 1; }
+    #format-error { margin-top: .5rem; font-size: .8rem; color: #dc2626; display: none; }
+
+    /* Live preview */
+    .preview-box {
+      margin-top: 1rem;
+      background: #f3f4f6;
+      border-radius: 6px;
+      padding: .6rem .9rem;
+      font-size: .82rem;
+      color: #374151;
+    }
+    .preview-box span { font-weight: 600; word-break: break-all; }
+
     button[type="submit"] {
       margin-top: 1.25rem;
       width: 100%;
@@ -75,6 +110,36 @@
     </div>
     <ul id="file-list"></ul>
     <div id="error-msg"></div>
+
+    <!-- Rename format -->
+    <div class="rename-section">
+      <h2>Rename format</h2>
+      <ul class="field-list" id="field-list">
+        <li class="field-row" draggable="true" data-key="date">
+          <span class="drag-handle">&#8942;&#8942;</span>
+          <input type="checkbox" id="chk-date" checked />
+          <label for="chk-date">Date of issue</label>
+        </li>
+        <li class="field-row" draggable="true" data-key="provider">
+          <span class="drag-handle">&#8942;&#8942;</span>
+          <input type="checkbox" id="chk-provider" checked />
+          <label for="chk-provider">Provider name</label>
+        </li>
+        <li class="field-row" draggable="true" data-key="amount">
+          <span class="drag-handle">&#8942;&#8942;</span>
+          <input type="checkbox" id="chk-amount" checked />
+          <label for="chk-amount">Amount</label>
+        </li>
+        <li class="field-row" draggable="true" data-key="currency">
+          <span class="drag-handle">&#8942;&#8942;</span>
+          <input type="checkbox" id="chk-currency" />
+          <label for="chk-currency">Currency</label>
+        </li>
+      </ul>
+      <div id="format-error">At least one field must be selected.</div>
+      <div class="preview-box">Preview: <span id="preview-name"></span></div>
+    </div>
+
     <button type="submit" id="submit-btn" disabled>Rename &amp; Download</button>
   </form>
   <div id="status"></div>
@@ -88,11 +153,24 @@
   const errorMsg = document.getElementById('error-msg');
   const submitBtn = document.getElementById('submit-btn');
   const status = document.getElementById('status');
+  const fieldListEl = document.getElementById('field-list');
+  const formatError = document.getElementById('format-error');
+  const previewName = document.getElementById('preview-name');
 
   const MAX_FILES = 10;
   const MAX_SIZE = 5 * 1024 * 1024;
 
+  // Example values for live preview
+  const EXAMPLES = {
+    date: () => new Date().toISOString().slice(0, 10).replace(/-/g, '_'),
+    provider: () => 'ACME',
+    amount: () => '30.56',
+    currency: () => 'USD',
+  };
+
   let selectedFiles = [];
+
+  // ── File handling ────────────────────────────────────────────────────────────
 
   function showError(msg) {
     errorMsg.textContent = msg;
@@ -111,7 +189,7 @@
       li.textContent = `\u2022 ${f.name} (${(f.size / 1024).toFixed(1)} KB)`;
       fileList.appendChild(li);
     });
-    submitBtn.disabled = selectedFiles.length === 0;
+    submitBtn.disabled = selectedFiles.length === 0 || !getFieldOrder().length;
   }
 
   function validateAndSet(files) {
@@ -145,15 +223,92 @@
     validateAndSet(e.dataTransfer.files);
   });
 
+  // ── Rename format ────────────────────────────────────────────────────────────
+
+  function getFieldOrder() {
+    return Array.from(fieldListEl.querySelectorAll('.field-row'))
+      .filter(row => row.querySelector('input[type="checkbox"]').checked)
+      .map(row => row.dataset.key);
+  }
+
+  function updatePreview() {
+    const order = getFieldOrder();
+    const hasError = order.length === 0;
+    formatError.style.display = hasError ? 'block' : 'none';
+    submitBtn.disabled = selectedFiles.length === 0 || hasError;
+
+    const parts = order.map(k => EXAMPLES[k]());
+    previewName.textContent = parts.length ? parts.join(' ') + '.pdf' : '—';
+  }
+
+  // Checkboxes — block unchecking the last one
+  fieldListEl.addEventListener('change', e => {
+    if (!e.target.matches('input[type="checkbox"]')) return;
+    const checked = getFieldOrder();
+    if (checked.length === 0) {
+      e.target.checked = true; // revert
+    }
+    updatePreview();
+  });
+
+  // ── Drag-and-drop reorder ────────────────────────────────────────────────────
+
+  let dragSrc = null;
+
+  fieldListEl.addEventListener('dragstart', e => {
+    dragSrc = e.target.closest('.field-row');
+    if (!dragSrc) return;
+    dragSrc.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  fieldListEl.addEventListener('dragend', () => {
+    document.querySelectorAll('.field-row').forEach(r => r.classList.remove('dragging', 'drag-over'));
+    dragSrc = null;
+  });
+
+  fieldListEl.addEventListener('dragover', e => {
+    e.preventDefault();
+    const target = e.target.closest('.field-row');
+    if (!target || target === dragSrc) return;
+    document.querySelectorAll('.field-row').forEach(r => r.classList.remove('drag-over'));
+    target.classList.add('drag-over');
+  });
+
+  fieldListEl.addEventListener('dragleave', e => {
+    const target = e.target.closest('.field-row');
+    if (target) target.classList.remove('drag-over');
+  });
+
+  fieldListEl.addEventListener('drop', e => {
+    e.preventDefault();
+    const target = e.target.closest('.field-row');
+    if (!target || !dragSrc || target === dragSrc) return;
+
+    const rows = Array.from(fieldListEl.children);
+    const srcIdx = rows.indexOf(dragSrc);
+    const tgtIdx = rows.indexOf(target);
+    if (srcIdx < tgtIdx) {
+      fieldListEl.insertBefore(dragSrc, target.nextSibling);
+    } else {
+      fieldListEl.insertBefore(dragSrc, target);
+    }
+    updatePreview();
+  });
+
+  // ── Submit ───────────────────────────────────────────────────────────────────
+
   form.addEventListener('submit', async e => {
     e.preventDefault();
-    if (selectedFiles.length === 0) return;
+    const order = getFieldOrder();
+    if (selectedFiles.length === 0 || order.length === 0) return;
 
     submitBtn.disabled = true;
     status.textContent = 'Uploading and extracting fields\u2026';
 
     const data = new FormData();
     selectedFiles.forEach(f => data.append('files', f));
+    data.append('field_order', order.join(','));
 
     try {
       const res = await fetch('/upload', { method: 'POST', body: data });
@@ -179,6 +334,9 @@
       submitBtn.disabled = false;
     }
   });
+
+  // Initial preview render
+  updatePreview();
 </script>
 </body>
 </html>

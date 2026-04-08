@@ -19,7 +19,7 @@ def pdf_file():
 async def test_upload_returns_zip(pdf_file):
     with patch("app.main.extract_invoice_fields", new_callable=AsyncMock, return_value=FAKE_FIELDS):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post("/upload", files=[pdf_file])
+            response = await client.post("/upload", files=[pdf_file], data={"field_order": "date,provider,amount"})
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     zf = zipfile.ZipFile(io.BytesIO(response.content))
@@ -63,6 +63,23 @@ async def test_rejects_oversized_file():
 async def test_zip_contains_correct_filename(pdf_file):
     with patch("app.main.extract_invoice_fields", new_callable=AsyncMock, return_value=FAKE_FIELDS):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post("/upload", files=[pdf_file])
+            response = await client.post("/upload", files=[pdf_file], data={"field_order": "date,provider,amount"})
     zf = zipfile.ZipFile(io.BytesIO(response.content))
-    assert zf.namelist()[0] == "2024_03_15 Acme 100.00 EUR.pdf"
+    assert zf.namelist()[0] == "2024_03_15 Acme 100.00.pdf"
+
+
+@pytest.mark.asyncio
+async def test_custom_field_order(pdf_file):
+    with patch("app.main.extract_invoice_fields", new_callable=AsyncMock, return_value=FAKE_FIELDS):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/upload", files=[pdf_file], data={"field_order": "provider,amount,currency"})
+    zf = zipfile.ZipFile(io.BytesIO(response.content))
+    assert zf.namelist()[0] == "Acme 100.00 EUR.pdf"
+
+
+@pytest.mark.asyncio
+async def test_rejects_empty_field_order(pdf_file):
+    with patch("app.main.extract_invoice_fields", new_callable=AsyncMock, return_value=FAKE_FIELDS):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/upload", files=[pdf_file], data={"field_order": "invalid"})
+    assert response.status_code == 400

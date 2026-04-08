@@ -1,14 +1,28 @@
 import re
 
 
-def build_filename(fields: dict) -> str:
-    """Build output filename: YYYY_MM_DD PROVIDER_NAME AMOUNT CURRENCY.pdf"""
-    date = _sanitize_date(fields.get("date", "UNKNOWN"))
-    provider = _sanitize_provider(fields.get("provider", "UNKNOWN"))
-    amount = _sanitize_amount(fields.get("amount", "UNKNOWN"))
-    currency = _sanitize_token(fields.get("currency", "UNKNOWN"))
+DEFAULT_FIELD_ORDER = ["date", "provider", "amount"]
 
-    return f"{date} {provider} {amount} {currency}.pdf"
+_SANITIZERS = {
+    "date": lambda v: _sanitize_date(v),
+    "provider": lambda v: _sanitize_provider(v),
+    "amount": lambda v: _sanitize_amount(v),
+    "currency": lambda v: _sanitize_token(v),
+}
+
+
+def build_filename(fields: dict, field_order: list[str] | None = None) -> str:
+    """Build output filename from extracted fields in the given order."""
+    if not field_order:
+        field_order = DEFAULT_FIELD_ORDER
+
+    parts = []
+    for key in field_order:
+        sanitize = _SANITIZERS.get(key)
+        if sanitize:
+            parts.append(sanitize(fields.get(key, "UNKNOWN")))
+
+    return " ".join(parts) + ".pdf"
 
 
 def _sanitize_date(date: str) -> str:

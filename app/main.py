@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -23,10 +23,20 @@ async def index():
         return f.read()
 
 
+VALID_FIELDS = {"date", "provider", "amount", "currency"}
+
+
 @app.post("/upload")
-async def upload(files: list[UploadFile] = File(...)):
+async def upload(
+    files: list[UploadFile] = File(...),
+    field_order: str = Form("date,provider,amount"),
+):
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Too many files. Maximum is {MAX_FILES}.")
+
+    order = [f.strip() for f in field_order.split(",") if f.strip() in VALID_FIELDS]
+    if not order:
+        raise HTTPException(status_code=400, detail="At least one valid field must be selected.")
 
     renamed = []
     for file in files:
@@ -39,7 +49,7 @@ async def upload(files: list[UploadFile] = File(...)):
             raise HTTPException(status_code=400, detail=f"'{file.filename}' exceeds 5 MB limit.")
 
         fields = await extract_invoice_fields(contents)
-        new_name = build_filename(fields)
+        new_name = build_filename(fields, order)
         renamed.append((new_name, contents))
 
     zip_bytes = build_zip(renamed)
